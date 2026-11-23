@@ -1,27 +1,8 @@
 const { neon } = require('@neondatabase/serverless');
-const crypto = require('crypto');
 const sql = neon(process.env.DATABASE_URL);
-const sign = e => crypto.createHmac('sha256', process.env.SESSION_SECRET).update(String(e)).digest('hex');
-const eq = (a, b) => { const x = Buffer.from(a), y = Buffer.from(b); return x.length === y.length && crypto.timingSafeEqual(x, y); };
-const passwordEq = (a, b) => eq(
-  crypto.createHash('sha256').update(String(a)).digest(),
-  crypto.createHash('sha256').update(String(b)).digest()
-);
-function authed(req) {
-  const m = (req.headers.cookie || '').match(/(?:^|;\s*)kws=(\d+)\.([a-f0-9]{64})(?:;|$)/);
-  return !!m && +m[1] > Date.now() && eq(m[2], sign(m[1]));
-}
 module.exports = async (req, res) => {
   const a = req.query.a;
   try {
-    if (a === 'login' && req.method === 'POST') {
-      const ok = !!process.env.APP_PASSWORD && passwordEq((req.body || {}).password || '', process.env.APP_PASSWORD);
-      if (!ok) return res.status(401).json({ error: 'bad password' });
-      const e = Date.now() + 30 * 864e5;
-      res.setHeader('Set-Cookie', `kws=${e}.${sign(e)}; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=2592000`);
-      return res.json({ ok: 1 });
-    }
-    if (!authed(req)) return res.status(401).json({ error: 'login required' });
     if (a === 'load') {
       const rows = await sql`SELECT * FROM leads WHERE deleted_at IS NULL ORDER BY created`;
       const st = await sql`SELECT key, value FROM settings`;

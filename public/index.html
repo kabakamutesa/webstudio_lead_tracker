@@ -82,16 +82,13 @@ async function persist(){if(busy){again=true;return}busy=true;
 try{const cur={};db.leads.forEach(l=>cur[l.id]=JSON.stringify(l));
 const up=db.leads.filter(l=>snap[l.id]!==cur[l.id]),del=Object.keys(snap).filter(i=>!(i in cur)),st={tpl:db.tpl,tplNew:db.tplNew,lastBackup:db.lastBackup},sj=JSON.stringify(st);
 if(up.length||del.length||sj!==ssnap){const r=await fetch('/api/app?a=save',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({up,del,st})});
-if(r.status===401){busy=false;return boot()}if(!r.ok)throw 0;snap=cur;ssnap=sj}}
+if(!r.ok)throw 0;snap=cur;ssnap=sj}}
 catch(e){toast('NOT SAVED. Check your connection; it retries on your next change.')}finally{busy=false}
 if(again){again=false;persist()}}
-async function boot(){try{const r=await fetch('/api/app?a=load');if(r.status===401)return loginView();if(!r.ok)throw 0;const d=await r.json();
+async function boot(){try{const r=await fetch('/api/app?a=load');if(!r.ok)throw 0;const d=await r.json();
 db.leads=d.leads;Object.assign(db,d.settings);db.tplNew=db.tplNew||DEFNEW;fixS();snap={};db.leads.forEach(l=>snap[l.id]=JSON.stringify(l));
 ssnap=JSON.stringify({tpl:db.tpl,tplNew:db.tplNew,lastBackup:db.lastBackup});render()}
 catch(e){$('#main').innerHTML='<div class="empty">Could not load your leads. Check your connection and reload.</div>'}}
-function loginView(){$('#tools').hidden=true;$('#chips').innerHTML='';$('#main').innerHTML='<div class="empty"><h2>Sign in</h2><input id="pw" type="password" placeholder="Password" style="max-width:260px"> <button class="btn pri" id="lg">Sign in</button></div>';
-$('#lg').onclick=async()=>{const r=await fetch('/api/app?a=login',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({password:$('#pw').value})});if(r.ok)boot();else toast('Wrong password')};
-$('#pw').onkeydown=e=>{if(e.key==='Enter')$('#lg').click()};$('#pw').focus()}
 function toast(m){const t=$('#toast');t.textContent=m;t.hidden=false;clearTimeout(toast.i);toast.i=setTimeout(()=>t.hidden=true,3200)}
 function wa(l){let p=String(l.phone||'').replace(/\D/g,'');if(!p)return'';if(p[0]==='0')p='254'+p.slice(1);else if(p.length===9)p='254'+p;return'https://wa.me/'+p+'?text='+encodeURIComponent((l.status==='new'?db.tplNew:db.tpl).replace(/\{name\}/g,l.name))}
 const pill=s=>`<span class="pill" style="background:hsl(${H[s]} 70% 50%/.22)">${s}</span>`;
