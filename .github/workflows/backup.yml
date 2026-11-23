@@ -1,0 +1,17 @@
+name: nightly-backup
+on:
+  schedule: [{ cron: '0 21 * * *' }]   # 21:00 UTC = midnight Nairobi
+  workflow_dispatch:
+jobs:
+  dump:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dump database
+        run: docker run --rm postgres:latest pg_dump --no-owner -Fc "${{ secrets.NEON_DIRECT_URL }}" > backup.dump
+      - name: Check dump is not empty
+        run: test $(stat -c%s backup.dump) -gt 1000
+      - uses: actions/upload-artifact@v4
+        with:
+          name: leads-backup-${{ github.run_id }}
+          path: backup.dump
+          retention-days: 90
