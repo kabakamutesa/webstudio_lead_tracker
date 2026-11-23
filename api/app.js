@@ -1,8 +1,35 @@
-const { neon } = require('@neondatabase/serverless');
-const sql = neon(process.env.DATABASE_URL);
+let neon = null, driverError = null;
+try { ({ neon } = require('@neondatabase/serverless')); } catch (e) { driverError = 'package @neondatabase/serverless not installed (is package.json in the repo root?)'; }
+const crypto = require('crypto');
+const URL_ = process.env.DATABASE_URL, SECRET = process.env.SESSION_SECRET, PASS = process.env.APP_PASSWORD;
+const sql = neon && URL_ ? neon(URL_) : null;
+const sign = e => crypto.createHmac('sha256', SECRET).update(String(e)).digest('hex');
+const eq = (a, b) => { const x = Buffer.from(a), y = Buffer.from(b); return x.length === y.length && crypto.timingSafeEqual(x, y); };
+function authed(req) {
+  if (!SECRET) return false;
+  const m = (req.headers.cookie || '').match(/(?:^|;\s*)kws=(\d+)\.([a-f0-9]{64})(?:;|$)/);
+  return !!m && +m[1] > Date.now() && eq(m[2], sign(m[1]));
+}
 module.exports = async (req, res) => {
   const a = req.query.a;
   try {
+    if (a === 'health') {
+      const out = { DATABASE_URL_set: !!URL_, APP_PASSWORD_set: !!PASS, SESSION_SECRET_set: !!SECRET, driver: driverError || 'ok', signed_in: authed(req) };
+      if (sql) {
+        try { const r = await sql`SELECT count(*)::int AS n FROM leads WHERE deleted_at IS NULL`; out.database = 'connected, leads table ok'; if (out.signed_in) out.live_leads = r[0].n; }
+        catch (e) { out.database = 'FAILED'; out.error = String(e.message || e).slice(0, 200); }
+      } else out.database = 'not attempted (driver or DATABASE_URL missing)';
+      return res.json(out);
+    }
+    if (!sql) return res.status(500).json({ error: driverError || 'DATABASE_URL is not set in Vercel' });
+    if (a === 'login' && req.method === 'POST') {
+      if (!SECRET || !PASS) return res.status(500).json({ error: 'APP_PASSWORD or SESSION_SECRET is not set in Vercel' });
+      if (!eq(String((req.body || {}).password || ''), PASS)) return res.status(401).json({ error: 'bad password' });
+      const e = Date.now() + 30 * 864e5;
+      res.setHeader('Set-Cookie', `kws=${e}.${sign(e)}; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=2592000`);
+      return res.json({ ok: 1 });
+    }
+    if (!authed(req)) return res.status(401).json({ error: 'login required' });
     if (a === 'load') {
       const rows = await sql`SELECT * FROM leads WHERE deleted_at IS NULL ORDER BY created`;
       const st = await sql`SELECT key, value FROM settings`;
@@ -30,5 +57,5 @@ module.exports = async (req, res) => {
       return res.json({ ok: 1 });
     }
     res.status(404).json({ error: 'not found' });
-  } catch (e) { console.error(e); res.status(500).json({ error: 'server error' }); }
+  } catch (e) { console.error(e); res.status(500).json({ error: 'server error: ' + String(e.message || e).slice(0, 160) }); }
 };
