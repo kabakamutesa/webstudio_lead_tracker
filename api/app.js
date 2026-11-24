@@ -1,7 +1,7 @@
 let neon = null, driverError = null;
 try { ({ neon } = require('@neondatabase/serverless')); } catch (e) { driverError = 'package @neondatabase/serverless not installed (is package.json in the repo root?)'; }
 const crypto = require('crypto');
-const URL_ = process.env.DATABASE_URL, SECRET = process.env.SESSION_SECRET, PASS = process.env.APP_PASSWORD;
+const URL_ = process.env.DATABASE_URL || process.env.POSTGRES_URL, SECRET = process.env.SESSION_SECRET, PASS = process.env.APP_PASSWORD;
 const sql = neon && URL_ ? neon(URL_) : null;
 const sign = e => crypto.createHmac('sha256', SECRET).update(String(e)).digest('hex');
 const eq = (a, b) => { const x = Buffer.from(a), y = Buffer.from(b); return x.length === y.length && crypto.timingSafeEqual(x, y); };
@@ -12,9 +12,13 @@ function authed(req) {
 }
 module.exports = async (req, res) => {
   const a = req.query.a;
+  res.setHeader('Cache-Control', 'no-store');
   try {
-    if (a === 'health') {
-      const out = { DATABASE_URL_set: !!URL_, APP_PASSWORD_set: !!PASS, SESSION_SECRET_set: !!SECRET, driver: driverError || 'ok', signed_in: authed(req) };
+    if (a === 'health') {  // public, but reveals no secrets and no lead data unless signed in
+      const out = { DATABASE_URL_set: !!URL_, APP_PASSWORD_set: !!PASS, SESSION_SECRET_set: !!SECRET, driver: driverError || 'ok', signed_in: authed(req),
+        deployment: process.env.VERCEL_ENV || 'not running on Vercel', branch: process.env.VERCEL_GIT_COMMIT_REF || null,
+        commit: (process.env.VERCEL_GIT_COMMIT_SHA || '').slice(0, 7) || null,
+        similar_variable_names_seen: Object.keys(process.env).filter(k => /DATA|POSTGRES|NEON|SECRET|PASS|SESSION/i.test(k)).sort() };
       if (sql) {
         try { const r = await sql`SELECT count(*)::int AS n FROM leads WHERE deleted_at IS NULL`; out.database = 'connected, leads table ok'; if (out.signed_in) out.live_leads = r[0].n; }
         catch (e) { out.database = 'FAILED'; out.error = String(e.message || e).slice(0, 200); }

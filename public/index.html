@@ -58,7 +58,7 @@ dialog::backdrop{background:rgba(0,9,10,.82);backdrop-filter:blur(4px)}
 #dbody .row{align-items:stretch}#dbody input,#dbody select,#dbody textarea{max-width:100%}
 }
 </style></head><body><script>window.addEventListener('error',function(e){var d=document.createElement('div');d.style.cssText='position:fixed;top:0;left:0;right:0;background:#b91c1c;color:#fff;padding:10px 14px;z-index:99;font:13px system-ui';d.textContent='Something broke: '+e.message+' (line '+e.lineno+'). Send this message to Claude.';document.body.appendChild(d)})</script><div class="wrap">
-<header><h1>Lead Tracker<small>Kabaka Web Studio · LETS SELL LIKE CRAAZY</small></h1>
+<header><h1>Lead Tracker<small>Kabaka Web Studio · LETS SELL LIKE CRAAZY<br><span id="sync">Connecting…</span></small></h1>
 <div class="row"><button class="btn" id="tplb">Message template</button><button class="btn" id="impb">Import</button><input type="file" id="imp" accept=".json,.csv,text/csv" hidden><button class="btn" id="exp">Export backup</button><button class="btn pri" id="add">Add lead</button></div></header>
 <div class="note" id="bk" hidden><span>Your leads are saved in your database. Export a copy now and then as an extra backup.</span><button class="sm" id="bkb">Export now</button></div>
 <div class="chips" id="chips"></div>
@@ -78,16 +78,18 @@ const $=s=>document.querySelector(s),esc=s=>String(s==null?'':s).replace(/[&<>"'
 const today=()=>new Date().toLocaleDateString('en-CA'),addDays=n=>{const d=new Date();d.setDate(d.getDate()+n);return d.toLocaleDateString('en-CA')},
 uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,6),isOpen=l=>l.status!=='won'&&l.status!=='lost',
 ago=t=>{if(!t)return'never';const d=Math.floor((Date.now()-t)/864e5);return d<1?'today':d===1?'yesterday':d+'d ago'};
+let syncBad=false;function setSync(t,bad){syncBad=!!bad;const e=$('#sync');if(e){e.textContent=t;e.style.color=bad?'var(--warn)':'';e.style.fontWeight=bad?'700':''}}
+addEventListener('beforeunload',e=>{if(syncBad||busy){e.preventDefault();e.returnValue=''}});
 async function persist(){if(busy){again=true;return}busy=true;
 try{const cur={};db.leads.forEach(l=>cur[l.id]=JSON.stringify(l));
 const up=db.leads.filter(l=>snap[l.id]!==cur[l.id]),del=Object.keys(snap).filter(i=>!(i in cur)),st={tpl:db.tpl,tplNew:db.tplNew,lastBackup:db.lastBackup},sj=JSON.stringify(st);
-if(up.length||del.length||sj!==ssnap){const r=await fetch('/api/app?a=save',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({up,del,st})});
-if(r.status===401){busy=false;return boot()}if(!r.ok)throw new Error('HTTP '+r.status);snap=cur;ssnap=sj}}
-catch(e){toast('NOT SAVED ('+(e.message||'network error')+'). Open /api/app?a=health to see why.')}finally{busy=false}
+if(up.length||del.length||sj!==ssnap){setSync('Saving…');const r=await fetch('/api/app?a=save',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({up,del,st})});
+if(r.status===401){busy=false;return boot()}if(!r.ok){let m='';try{m=(await r.json()).error}catch(x){}throw new Error('HTTP '+r.status+(m?': '+m:''))}snap=cur;ssnap=sj;setSync('All changes saved ✓')}}
+catch(e){setSync('NOT SAVED: '+(e.message||'network error'),true);toast('NOT SAVED. See the message under the title.')}finally{busy=false}
 if(again){again=false;persist()}}
 async function boot(){try{const r=await fetch('/api/app?a=load');if(r.status===401)return loginView();if(!r.ok)throw new Error('HTTP '+r.status);const d=await r.json();
 db.leads=d.leads;Object.assign(db,d.settings);db.tplNew=db.tplNew||DEFNEW;fixS();snap={};db.leads.forEach(l=>snap[l.id]=JSON.stringify(l));
-ssnap=JSON.stringify({tpl:db.tpl,tplNew:db.tplNew,lastBackup:db.lastBackup});render()}
+ssnap=JSON.stringify({tpl:db.tpl,tplNew:db.tplNew,lastBackup:db.lastBackup});setSync('Loaded '+db.leads.length+' leads from the database ✓');render()}
 catch(e){$('#main').innerHTML='<div class="empty">Could not load your leads ('+esc(e.message||'no response')+').<br>Open <a href="/api/app?a=health" style="color:var(--acc)">/api/app?a=health</a> to see what is wrong.</div>'}}
 function loginView(){$('#tools').hidden=true;$('#chips').innerHTML='';$('#main').innerHTML='<div class="empty"><h2>Sign in</h2><input id="pw" type="password" placeholder="Password" style="max-width:260px"> <button class="btn pri" id="lg">Sign in</button></div>';
 $('#lg').onclick=async()=>{const r=await fetch('/api/app?a=login',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({password:$('#pw').value})});if(r.ok)boot();else{let m='';try{m=(await r.json()).error}catch(x){}toast(r.status===401?'Wrong password':m||'Sign-in failed (HTTP '+r.status+')')}};
